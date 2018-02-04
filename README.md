@@ -18,3 +18,36 @@ Usage: mysql-bq-load-test [options]
   -o, --out <value>   
 ```
 
+### Example Docker
+
+- localhost as host name does not work as it's the docker host, has to be a resolvable host name
+- example below binds current directory to output /data
+
+```
+docker run --rm -it -v `pwd`:/data elmarweber/mysql-bq-load-test:latest -- -d "jdbc:mysql://database-host:3306/employees" -u root -p secret -t employees -o /data
+```
+
+### Example Jenkinsfile job with upload to BigQuery
+
+
+def exportAndUpload(dbUri, username, password, table, gsBucket = "gs://datalake/upload", bqDataset = "datalake:core") {
+    sh "mysql-bq-load-test -d ${dbUri} -u ${username} -p ${password} -t ${table} -o ./"
+    sh "gsutil cp ${table}.json ${gsBucket}/${table}.json"
+    sh "bq load --source_format=NEWLINE_DELIMITED_JSON --ignore_unknown_values --replace ${bqDataset}.${table} ${gsBucket}/${table}.json ${table}.bqschema"
+}
+
+
+pipeline {
+    agent {
+        docker { 
+            image 'elmarweber/mysql-bq-load-test:jenkins'
+        }
+    }
+    stages {
+        stage('etl') {
+            steps {
+                exportAndUpload('jdbc:mysql://my-db.local:3306/employees', 'root', 'secret', 'employees')
+            }
+        }
+    }
+}
