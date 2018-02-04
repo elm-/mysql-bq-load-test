@@ -1,13 +1,13 @@
 import com.typesafe.sbt.SbtNativePackager._
 import com.typesafe.sbt.packager.SettingsHelper._
-import com.typesafe.sbt.packager.debian.DebianPlugin.autoImport.Debian
 import com.typesafe.sbt.packager.docker.DockerPlugin.autoImport.Docker
+import scala.sys.process._
 
-//val shortCommit = ("git rev-parse --short HEAD" !!).replaceAll("\\n", "").replaceAll("\\r", "")
+val shortCommit = ("git rev-parse --short HEAD" !!).replaceAll("\\n", "").replaceAll("\\r", "")
 
 lazy val commonSettings = Seq(
   organization := "org.elmarweber.github.bigquery",
-  version := s"1.0.0-SNAPSHOT",
+  version := s"1.0.0-${shortCommit}",
   scalaVersion := "2.12.4",
   resolvers += Resolver.jcenterRepo,
 
@@ -28,13 +28,12 @@ lazy val commonSettings = Seq(
 )
 
 
-//val commonDockerSettings = Seq(
-//  packageName in Docker := "elm-/" + name.value,
-//  version in Docker     := shortCommit,
-//  dockerBaseImage       := "airdock/oracle-jdk:jdk-1.8",
-//  defaultLinuxInstallLocation in Docker := s"/opt/${name.value}", // to have consistent directory for files
-//  dockerRepository := Some("eu.gcr.io")
-//)
+val commonDockerSettings = Seq(
+  packageName in Docker := "elmarweber/" + name.value,
+  dockerBaseImage       := "openjdk:8",
+  defaultLinuxInstallLocation in Docker := s"/opt/${name.value}", // to have consistent directory for files
+  dockerRepository := None
+)
 
 val defaultLib = Seq(
   libraryDependencies ++= {
@@ -65,4 +64,9 @@ lazy val root = (project in file("."))
   .settings(Seq(name := "mqsql-bq-load-test"))
   .settings(commonSettings)
   .settings(defaultLib)
+  .settings(commonDockerSettings)
+  .settings(Seq(dockerUpdateLatest := true))
+  .enablePlugins(JavaAppPackaging)
+  .enablePlugins(DockerPlugin)
+
 
