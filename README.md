@@ -1,5 +1,7 @@
 # mysql-bq-load-test
 
+[![Build Status](https://travis-ci.org/elm-/mysql-bq-load-test.svg?branch=master)](https://travis-ci.org/elm-/mysql-bq-load-test)
+
 Simple script to load a MySQL table into BQ. Extracts schema and data as JSON.
 
 ## Usage
