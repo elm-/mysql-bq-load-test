@@ -1,18 +1,27 @@
 language: scala
 script:
-  - sbt compile
-  - sbt test
-  - docker login -u="$DOCKER_USERNAME" -p="$DOCKER_PASSWORD"
-  - sbt docker:publish
+- sbt compile
+- sbt test
+- docker login -u="$DOCKER_USERNAME" -p="$DOCKER_PASSWORD"
+- sbt docker:publish
+- sbt debian:packageBin
 scala:
-  - 2.12.4
+- 2.12.4
 jdk:
-  - openjdk8
+- openjdk8
 sudo: required
 services:
-  - docker
+- docker
 cache:
   directories:
-    - $HOME/.ivy2
-    - $HOME/.sbt
-  
+  - "$HOME/.ivy2"
+  - "$HOME/.sbt"
+before_deploy:
+  - export GIT_HASH=```git rev-parse --short HEAD```
+deploy:
+  provider: releases
+  api_key:
+    secure: ewQYQww0EWDFXl1GgdI7NUYjOEC16kPIEetnm+Xc2lDUaJrJ9Mr1tiO37TxqcN8TAOUPqxe5sIWVLKujnfx5wilgHrhaKFHIwjG5RwSjaVOK4QRBIh7lURY+nHV/7oUx/tzV8OHm+cwjY9PkrlyJwqvsziHXbjXahNmjn1K58Tzowzym+bFNRMbXE/Qw346G94VFgZokF22Xp6KkRzXEMpnAA3DFpQaa+ebL6FJSw3iJpNuPqVxclWdH5z8z5PSpVwa+DbTfPTZDmUDh+oTm5f3shZ3eFkiTrXJNcngpZxO+TJU36fKNwnpP0uF4mdhefJp6txsVf3b6+TiTsBjYyTTWjMBaywgz8cKRCmcc3t3O7ZqZf0A4ovMTlxASJUzg4ivDwJc6OUgPcIkxxIhNdzSBEm4HjsdCPpAkDyu92bq6GsQBmjBvNSNEb74B0IvDZkc1pq64IUUJMfmRsH2R5ejddnjsFzm/K/H1EB1kjn1iQue3AodSGT1bmIbJBT/yuJASr0LGyBDyeGUvd1HAdacV5Ckb3UkFiwAxx+cIWYWurBYV59guCinURb8YJmHjQ8FLM1uY9YfHDerYPjszSEltRuv6HnYPXeTTF5b8Nj/Jt50v9NjJO4MVcVT0O+PvHMI2ZHEtbVdt7QzEPtXZ93/bpWfck0VbR3XsG+s7LXE=
+  file: "target/mqsql-bq-load-test_1.0.0-${GIT_HASH}_all.deb"
+  on:
+    repo: elm-/mysql-bq-load-test

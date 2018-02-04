@@ -35,6 +35,8 @@ val commonDockerSettings = Seq(
   dockerRepository := None
 )
 
+
+
 val defaultLib = Seq(
   libraryDependencies ++= {
     val akkaV            = "2.5.9"
@@ -68,5 +70,9 @@ lazy val root = (project in file("."))
   .settings(Seq(dockerUpdateLatest := true))
   .enablePlugins(JavaAppPackaging)
   .enablePlugins(DockerPlugin)
+  .enablePlugins(DebianPlugin)
+  .enablePlugins(JDebPackaging)
+
+
 
 
