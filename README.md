@@ -36,7 +36,7 @@ def exportAndUpload(dbUri, username, password, table, gsBucket = "gs://datalake/
     sh "bq load --source_format=NEWLINE_DELIMITED_JSON --ignore_unknown_values --replace ${bqDataset}.${table} ${gsBucket}/${table}.json ${table}.bqschema"
 }
 
-def googleProjectId = 'cpy-srv-datalake'
+def googleProjectId = 'datalake'
 
 pipeline {
     agent {
