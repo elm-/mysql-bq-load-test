@@ -63,7 +63,7 @@ val defaultLib = Seq(
 )
 
 lazy val root = (project in file("."))
-  .settings(Seq(name := "mqsql-bq-load-test"))
+  .settings(Seq(name := "mysql-bq-load-test"))
   .settings(commonSettings)
   .settings(defaultLib)
   .settings(commonDockerSettings)
