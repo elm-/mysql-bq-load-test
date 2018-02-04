@@ -5,6 +5,8 @@ script:
 - docker login -u="$DOCKER_USERNAME" -p="$DOCKER_PASSWORD"
 - sbt docker:publish
 - sbt debian:packageBin
+- docker build -t elmarweber/mysql-bq-load-test:jenkins .
+- docker push elmarweber/mysql-bq-load-test:jenkins
 scala:
 - 2.12.4
 jdk:
