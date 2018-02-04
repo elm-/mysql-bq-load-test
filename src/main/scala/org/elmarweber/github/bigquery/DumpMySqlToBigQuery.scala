@@ -50,14 +50,14 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
         val colName = rs.getMetaData.getColumnName(i)
         val nullable = if (rs.getMetaData.isNullable(i) == ResultSetMetaData.columnNullable) "nullable" else "required"
         val bqType = rs.getMetaData.getColumnType(i) match {
-          case Types.BOOLEAN => "boolean"
-          case Types.INTEGER => "int"
-          case Types.DECIMAL => "float"
-          case Types.TIMESTAMP | Types.DATE => "timestamp"
-          case Types.CHAR | Types.VARCHAR => "string"
+          case Types.BOOLEAN => BqTypes.Boolean
+          case Types.INTEGER => BqTypes.Integer
+          case Types.DECIMAL => BqTypes.Float
+          case Types.TIMESTAMP | Types.DATE => BqTypes.Timestamp
+          case Types.CHAR | Types.VARCHAR => BqTypes.String
           case o =>
             logger.warn(s"Unhandled type ${o}/${rs.getMetaData.getColumnTypeName(i)}, defaulting to string")
-            "string"
+            BqTypes.String
         }
         BqSchemaField(colName, bqType, nullable)
       }
@@ -86,10 +86,10 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
           val rowValues = schemaWithIndex.map { case (field, i) =>
             val sqlIndex = i + 1
             val value = field.`type` match {
-              case "boolean" => JsBoolean(rs.getBoolean(sqlIndex))
-              case "int" | "float" => JsNumber(rs.getBigDecimal(sqlIndex))
-              case "timestamp" => JsNumber(rs.getTimestamp(sqlIndex).getTime)
-              case "string" => JsString(rs.getString(sqlIndex))
+              case BqTypes.Boolean => JsBoolean(rs.getBoolean(sqlIndex))
+              case BqTypes.Integer | BqTypes.Float => JsNumber(rs.getBigDecimal(sqlIndex))
+              case BqTypes.Timestamp => JsNumber(rs.getTimestamp(sqlIndex).getTime)
+              case BqTypes.String => JsString(rs.getString(sqlIndex))
             }
             field.name -> value
           }

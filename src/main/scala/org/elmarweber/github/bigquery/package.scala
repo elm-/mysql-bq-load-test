@@ -3,6 +3,14 @@ package org.elmarweber.github
 import spray.json._
 
 package object bigquery {
+  object BqTypes {
+    val Integer = "integer"
+    val Boolean = "boolean"
+    val String = "string"
+    val Float = "float"
+    val Timestamp = "timestamp"
+  }
+
   case class BqSchemaField(name: String, `type`: String = "string", mode: String = "nullable", fields: List[BqSchemaField] = Nil)
   type BqSchema = List[BqSchemaField]
   object BqSchemaField {
