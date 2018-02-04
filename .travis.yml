@@ -1,0 +1,18 @@
+language: scala
+script:
+  - sbt compile
+  - sbt test
+  - docker login -u="$DOCKER_USERNAME" -p="$DOCKER_PASSWORD"
+  - sbt docker:publish
+scala:
+  - 2.12.4
+jdk:
+  - openjdk8
+sudo: required
+services:
+  - docker
+cache:
+  directories:
+    - $HOME/.ivy2
+    - $HOME/.sbt
+  
