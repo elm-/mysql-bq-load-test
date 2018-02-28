@@ -12,9 +12,10 @@ import akka.NotUsed
 import akka.actor.ActorSystem
 import akka.stream.{ActorMaterializer, OverflowStrategy}
 import akka.stream.scaladsl._
+import com.mysql.cj.jdbc.util.ResultSetUtil
 import com.typesafe.scalalogging.StrictLogging
 import org.apache.commons.dbcp2.BasicDataSource
-import org.apache.commons.dbutils.{QueryRunner, ResultSetHandler}
+import org.apache.commons.dbutils.{DbUtils, QueryRunner, ResultSetHandler}
 import spray.json._
 
 import scala.concurrent.Await
@@ -45,14 +46,14 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
   val runner = new QueryRunner(config.dataSource)
 
   // head table to get col layout
-  val schema = runner.query(s"select * from ${config.table}", new ResultSetHandler[BqSchema] {
+  val schema = runner.query(s"select * from ${config.table} limit 1", new ResultSetHandler[BqSchema] {
     override def handle(rs: ResultSet): BqSchema = {
       (1 to rs.getMetaData.getColumnCount).toList.map { i =>
         val colName = rs.getMetaData.getColumnName(i)
         val nullable = if (rs.getMetaData.isNullable(i) == ResultSetMetaData.columnNullable) "nullable" else "required"
         val bqType = rs.getMetaData.getColumnType(i) match {
           case Types.BOOLEAN => BqTypes.Boolean
-          case Types.INTEGER | Types.BIGINT | Types.BIT => BqTypes.Integer
+          case Types.INTEGER | Types.BIGINT | Types.TINYINT | Types.BIT => BqTypes.Integer
           case Types.DECIMAL => BqTypes.Float
           case Types.TIMESTAMP | Types.DATE => BqTypes.Timestamp
           case Types.CHAR | Types.VARCHAR | Types.LONGVARCHAR => BqTypes.String
@@ -65,6 +66,7 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
     }
   })
   val schemaWithIndex = schema.zipWithIndex
+  logger.info(s"Successfully build schema with ${schema.size} columns")
 
 
   val out = {
@@ -81,43 +83,55 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
     .map { rowJso =>
       val line = (rowJso.toString + "\n").getBytes(StandardCharsets.UTF_8)
       out.write(line)
-      if (counter.incrementAndGet() % 10000 == 0) logger.info(s"Done ${counter.get()} rows")
+      val count = counter.incrementAndGet()
+      if (((count < 1000000) && count % 10000 == 0) || (count % 100000 == 0)) logger.info(s"Done ${counter.get()} rows")
     }
     .toMat(Sink.ignore)(Keep.both)
     .run()
 
-  runner.query(s"select * from ${config.table}", new ResultSetHandler[Unit] {
-    override def handle(rs: ResultSet): Unit = {
-      try {
-        while (rs.next()) {
-          val rowValues = schemaWithIndex.map { case (field, i) =>
-            val sqlIndex = i + 1
-            val value = {
-              if (rs.getString(sqlIndex) == null) {
-                JsNull
-              } else {
-                field.`type` match {
-                  case BqTypes.Boolean => JsBoolean(rs.getBoolean(sqlIndex))
-                  case BqTypes.Integer | BqTypes.Float => JsNumber(rs.getBigDecimal(sqlIndex))
-                  case BqTypes.Timestamp => JsNumber(rs.getTimestamp(sqlIndex).getTime)
-                  case BqTypes.String => JsString(rs.getString(sqlIndex))
-                }
-              }
+  // manually create connection to fine tune fetch settings, settings below are required idiomatic settings for JDBC streaming behavior on MySQL
+  // https://stackoverflow.com/questions/6942336/mysql-memory-ram-usage-increases-while-using-resultset
+  val conn = config.dataSource.getConnection()
+  val pstmt = conn.prepareStatement(s"select * from ${config.table}", ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY, ResultSet.CLOSE_CURSORS_AT_COMMIT)
+  pstmt.setFetchSize(Integer.MIN_VALUE)
+  val rs = pstmt.executeQuery()
+
+  try {
+    while (rs.next()) {
+      val rowValues = schemaWithIndex.map { case (field, i) =>
+        val sqlIndex = i + 1
+        val value = {
+          if (rs.getString(sqlIndex) == null) {
+            JsNull
+          } else {
+            field.`type` match {
+              case BqTypes.Boolean => JsBoolean(rs.getBoolean(sqlIndex))
+              case BqTypes.Integer | BqTypes.Float => JsNumber(rs.getBigDecimal(sqlIndex))
+              case BqTypes.Timestamp => JsNumber(rs.getTimestamp(sqlIndex).getTime)
+              case BqTypes.String => JsString(rs.getString(sqlIndex))
             }
-            field.name -> value
           }
-          val rowJso = JsObject(rowValues.toMap)
-          Await.result(queue.offer(rowJso), writeTimeout)
         }
-        queue.complete()
-      } catch {
-        case ex: Exception => queue.fail(ex)
+        field.name -> value
       }
+      val rowJso = JsObject(rowValues.toMap)
+      Await.result(queue.offer(rowJso), writeTimeout)
     }
-  })
+    queue.complete()
+  } catch {
+    case ex: Exception => queue.fail(ex)
+  }
+
+
+  def cleanSql() = {
+    DbUtils.closeQuietly(rs)
+    DbUtils.closeQuietly(pstmt)
+    DbUtils.closeQuietly(conn)
+  }
 
   future.onComplete {
     case Success(_) =>
+      cleanSql()
       out.flush()
       out.close()
       logger.info(s"Dumped ${counter.get()} rows to ${dataFile}")
@@ -125,6 +139,7 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
       logger.info(s"Dumped schema to ${schemaFile}")
       System.exit(0)
     case Failure(ex) =>
+      cleanSql()
       logger.error(s"Failed stream: ${ex.getMessage}", ex)
       System.exit(1)
   }
