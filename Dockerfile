@@ -16,9 +16,10 @@ RUN export CLOUD_SDK_REPO="cloud-sdk-$(lsb_release -c -s)" && \
     apt-get update && apt-get install -y google-cloud-sdk && \
     apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# fallback for no user
+# fallback for no user in jenkins env
 
-RUN mkdir /.config && mkdir /.config/gcloud && chmod 777 -R /.config 
+RUN mkdir /.config && mkdir /.config/gcloud && chmod 777 -R /.config && \
+    mkdir /.gsutil && chmod 777 -R /.gsutil
 
 
 COPY target/*.deb /tmp/install.deb
