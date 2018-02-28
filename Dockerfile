@@ -19,7 +19,8 @@ RUN export CLOUD_SDK_REPO="cloud-sdk-$(lsb_release -c -s)" && \
 # fallback for no user in jenkins env
 
 RUN mkdir /.config && mkdir /.config/gcloud && chmod 777 -R /.config && \
-    mkdir /.gsutil && chmod 777 -R /.gsutil
+    mkdir /.gsutil && chmod 777 -R /.gsutil && \
+    touch /.bigqueryrc && chmod 777 /.bigqueryrc
 
 
 COPY target/*.deb /tmp/install.deb
