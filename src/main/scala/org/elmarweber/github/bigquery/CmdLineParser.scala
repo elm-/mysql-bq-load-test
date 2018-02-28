@@ -6,7 +6,7 @@ import javax.sql.DataSource
 import org.apache.commons.dbcp2.BasicDataSource
 
 object CmdLineParser {
-  case class Config(dbUrl: String = "jdbc:mysql://localhost:3306/test", username: String = "root", password: String = "", table: String = "", outDir: File = new File("./")) {
+  case class Config(dbUrl: String = "jdbc:mysql://localhost:3306/test", username: String = "root", password: String = "", table: String = "", outDir: File = new File("./"), compress: Boolean = false) {
     def dataSource = {
       val ds = new BasicDataSource()
       ds.setDriverClassName("com.mysql.cj.jdbc.Driver")
@@ -31,6 +31,10 @@ object CmdLineParser {
 
     opt[String]('p', "password")
       .action( (x, c) => c.copy(password = x) )
+
+    opt[Boolean]('c', "compress")
+      .action( (x, c) => c.copy(compress = x) )
+      .text(s"weather to compress the output with gzip")
 
     opt[String]('t', "table")
       .required()

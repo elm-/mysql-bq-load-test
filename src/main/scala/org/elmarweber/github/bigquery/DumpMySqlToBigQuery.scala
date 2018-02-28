@@ -6,6 +6,7 @@ import javax.sql.DataSource
 import java.nio.file.{Files, Paths}
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.atomic.AtomicLong
+import java.util.zip.GZIPOutputStream
 
 import akka.NotUsed
 import akka.actor.ActorSystem
@@ -35,7 +36,7 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
   val writeTimeout = 30.seconds // timeout in case issue with slow writer
 
   val schemaFile = s"${config.outDir.getAbsolutePath}/${config.table}.bqschema"
-  val dataFile = s"${config.outDir.getAbsolutePath}/${config.table}.json"
+  val dataFile = s"${config.outDir.getAbsolutePath}/${config.table}.json${if (config.compress) ".gz" else ""}"
 
   implicit val system = ActorSystem("sql-bq")
   implicit val ec = system.dispatcher
@@ -66,15 +67,20 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
   val schemaWithIndex = schema.zipWithIndex
 
 
-  val fout = new FileOutputStream(new File(dataFile))
+  val out = {
+    if (config.compress) {
+      new GZIPOutputStream(new FileOutputStream(new File(dataFile)))
+    } else {
+      new FileOutputStream(new File(dataFile))
+    }
+  }
   val counter = new AtomicLong(0)
 
   val (queue, future) = Source
     .queue[JsObject](512, OverflowStrategy.backpressure)
     .map { rowJso =>
-      println(rowJso)
       val line = (rowJso.toString + "\n").getBytes(StandardCharsets.UTF_8)
-      fout.write(line)
+      out.write(line)
       if (counter.incrementAndGet() % 10000 == 0) logger.info(s"Done ${counter.get()} rows")
     }
     .toMat(Sink.ignore)(Keep.both)
@@ -112,8 +118,8 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
 
   future.onComplete {
     case Success(_) =>
-      fout.flush()
-      fout.close()
+      out.flush()
+      out.close()
       logger.info(s"Dumped ${counter.get()} rows to ${dataFile}")
       Files.write(Paths.get(schemaFile), schema.toJson.toString.getBytes(StandardCharsets.UTF_8))
       logger.info(s"Dumped schema to ${schemaFile}")
