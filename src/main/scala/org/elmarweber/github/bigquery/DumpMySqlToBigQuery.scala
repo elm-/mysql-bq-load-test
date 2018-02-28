@@ -52,10 +52,10 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
         val nullable = if (rs.getMetaData.isNullable(i) == ResultSetMetaData.columnNullable) "nullable" else "required"
         val bqType = rs.getMetaData.getColumnType(i) match {
           case Types.BOOLEAN => BqTypes.Boolean
-          case Types.INTEGER => BqTypes.Integer
+          case Types.INTEGER | Types.BIGINT | Types.BIT => BqTypes.Integer
           case Types.DECIMAL => BqTypes.Float
           case Types.TIMESTAMP | Types.DATE => BqTypes.Timestamp
-          case Types.CHAR | Types.VARCHAR => BqTypes.String
+          case Types.CHAR | Types.VARCHAR | Types.LONGVARCHAR => BqTypes.String
           case o =>
             logger.warn(s"Unhandled type ${o}/${rs.getMetaData.getColumnTypeName(i)}, defaulting to string")
             BqTypes.String
