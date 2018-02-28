@@ -16,6 +16,11 @@ RUN export CLOUD_SDK_REPO="cloud-sdk-$(lsb_release -c -s)" && \
     apt-get update && apt-get install -y google-cloud-sdk && \
     apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
+# fallback for no user
+
+RUN mkdir /.config && mkdir /.config/gcloud && chmod 777 -R /.config 
+
+
 COPY target/*.deb /tmp/install.deb
 
 RUN dpkg -i /tmp/install.deb
