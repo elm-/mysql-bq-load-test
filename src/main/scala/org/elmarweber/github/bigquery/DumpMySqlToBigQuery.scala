@@ -72,6 +72,7 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
   val (queue, future) = Source
     .queue[JsObject](512, OverflowStrategy.backpressure)
     .map { rowJso =>
+      println(rowJso)
       val line = (rowJso.toString + "\n").getBytes(StandardCharsets.UTF_8)
       fout.write(line)
       if (counter.incrementAndGet() % 10000 == 0) logger.info(s"Done ${counter.get()} rows")
@@ -85,11 +86,17 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
         while (rs.next()) {
           val rowValues = schemaWithIndex.map { case (field, i) =>
             val sqlIndex = i + 1
-            val value = field.`type` match {
-              case BqTypes.Boolean => JsBoolean(rs.getBoolean(sqlIndex))
-              case BqTypes.Integer | BqTypes.Float => JsNumber(rs.getBigDecimal(sqlIndex))
-              case BqTypes.Timestamp => JsNumber(rs.getTimestamp(sqlIndex).getTime)
-              case BqTypes.String => JsString(rs.getString(sqlIndex))
+            val value = {
+              if (rs.getString(sqlIndex) == null) {
+                JsNull
+              } else {
+                field.`type` match {
+                  case BqTypes.Boolean => JsBoolean(rs.getBoolean(sqlIndex))
+                  case BqTypes.Integer | BqTypes.Float => JsNumber(rs.getBigDecimal(sqlIndex))
+                  case BqTypes.Timestamp => JsNumber(rs.getTimestamp(sqlIndex).getTime)
+                  case BqTypes.String => JsString(rs.getString(sqlIndex))
+                }
+              }
             }
             field.name -> value
           }
