@@ -37,7 +37,7 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
   val writeTimeout = 30.seconds // timeout in case issue with slow writer
 
   val schemaFile = s"${config.outDir.getAbsolutePath}/${config.table}.bqschema"
-  val dataFile = s"${config.outDir.getAbsolutePath}/${config.table}.json${if (config.compress) ".gz" else ""}"
+  def genDataFile(i: Int) = s"${config.outDir.getAbsolutePath}/${config.table}.${i}.json${if (config.compress) ".gz" else ""}"
 
   implicit val system = ActorSystem("sql-bq")
   implicit val ec = system.dispatcher
@@ -69,22 +69,32 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
   logger.info(s"Successfully build schema with ${schema.size} columns")
 
 
-  val out = {
+  var fileCount = 0
+  def recreateOut(i: Int) = {
     if (config.compress) {
-      new GZIPOutputStream(new FileOutputStream(new File(dataFile)))
+      new GZIPOutputStream(new FileOutputStream(new File(genDataFile(i))))
     } else {
-      new FileOutputStream(new File(dataFile))
+      new FileOutputStream(new File(genDataFile(i)))
     }
   }
+
+  var out = recreateOut(fileCount)
   val counter = new AtomicLong(0)
 
   val (queue, future) = Source
     .queue[JsObject](512, OverflowStrategy.backpressure)
     .map { rowJso =>
-      val line = (rowJso.toString + "\n").getBytes(StandardCharsets.UTF_8)
-      out.write(line)
       val count = counter.incrementAndGet()
       if (((count < 1000000) && count % 10000 == 0) || (count % 100000 == 0)) logger.info(s"Done ${counter.get()} rows")
+      if (config.splitLines.isDefined && count % config.splitLines.get == 0) {
+        out.flush()
+        out.close()
+        fileCount += 1
+        logger.info(s"Creating new file with index ${fileCount}")
+        out = recreateOut(fileCount)
+      }
+      val line = (rowJso.toString + "\n").getBytes(StandardCharsets.UTF_8)
+      out.write(line)
     }
     .toMat(Sink.ignore)(Keep.both)
     .run()
@@ -134,7 +144,7 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
       cleanSql()
       out.flush()
       out.close()
-      logger.info(s"Dumped ${counter.get()} rows to ${dataFile}")
+      logger.info(s"Dumped ${counter.get()} rows to ${fileCount + 1} data files")
       Files.write(Paths.get(schemaFile), schema.toJson.toString.getBytes(StandardCharsets.UTF_8))
       logger.info(s"Dumped schema to ${schemaFile}")
       System.exit(0)
