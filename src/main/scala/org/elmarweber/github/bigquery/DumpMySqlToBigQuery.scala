@@ -50,7 +50,6 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
     override def handle(rs: ResultSet): BqSchema = {
       (1 to rs.getMetaData.getColumnCount).toList.map { i =>
         val colName = rs.getMetaData.getColumnName(i)
-        val nullable = if (rs.getMetaData.isNullable(i) == ResultSetMetaData.columnNullable) "nullable" else "required"
         val bqType = rs.getMetaData.getColumnType(i) match {
           case Types.BOOLEAN => BqTypes.Boolean
           case Types.INTEGER | Types.BIGINT | Types.TINYINT | Types.BIT => BqTypes.Integer
@@ -61,6 +60,9 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
             logger.warn(s"Unhandled type ${o}/${rs.getMetaData.getColumnTypeName(i)}, defaulting to string")
             BqTypes.String
         }
+        // timestamps are always nullable because
+        val nullable = if ((rs.getMetaData.isNullable(i) == ResultSetMetaData.columnNullable) || bqType == BqTypes.Timestamp) "nullable" else "required"
+
         BqSchemaField(colName, bqType, nullable)
       }
     }
