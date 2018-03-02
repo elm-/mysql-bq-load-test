@@ -117,7 +117,13 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
             field.`type` match {
               case BqTypes.Boolean => JsBoolean(rs.getBoolean(sqlIndex))
               case BqTypes.Integer | BqTypes.Float => JsNumber(rs.getBigDecimal(sqlIndex))
-              case BqTypes.Timestamp => JsNumber(rs.getTimestamp(sqlIndex).getTime)
+              case BqTypes.Timestamp =>
+                // have to re-check null due to special TS handling with convert to null param in connection string
+                if (rs.getTimestamp(sqlIndex) == null) {
+                  JsNull
+                } else {
+                  JsNumber(rs.getTimestamp(sqlIndex).getTime)
+                }
               case BqTypes.String => JsString(rs.getString(sqlIndex))
             }
           }
