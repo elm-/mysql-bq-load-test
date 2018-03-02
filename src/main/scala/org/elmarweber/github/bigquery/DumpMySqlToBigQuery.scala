@@ -53,7 +53,7 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
         val bqType = rs.getMetaData.getColumnType(i) match {
           case Types.BOOLEAN => BqTypes.Boolean
           case Types.INTEGER | Types.BIGINT | Types.TINYINT | Types.BIT => BqTypes.Integer
-          case Types.DECIMAL => BqTypes.Float
+          case Types.DECIMAL | Types.FLOAT => BqTypes.Float
           case Types.TIMESTAMP | Types.DATE => BqTypes.Timestamp
           case Types.CHAR | Types.VARCHAR | Types.LONGVARCHAR => BqTypes.String
           case o =>
