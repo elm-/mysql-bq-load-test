@@ -124,7 +124,7 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
                 if (rs.getTimestamp(sqlIndex) == null) {
                   JsNull
                 } else {
-                  JsNumber(rs.getTimestamp(sqlIndex).getTime)
+                  JsString(BigQueryUtil.formatDate(rs.getTimestamp(sqlIndex).getTime))
                 }
               case BqTypes.String => JsString(rs.getString(sqlIndex))
             }
