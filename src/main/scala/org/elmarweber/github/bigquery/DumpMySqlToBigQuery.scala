@@ -84,13 +84,13 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
   }
 
 
-  val (queue, future) = Source
-    .queue[JsObject](512, OverflowStrategy.backpressure)
+  val future = Source
+    .fromGraph(SqlReaderToJsonSource.create(config.table, schema)(config.dataSource))
     .map { rowJso =>
       val line = (rowJso.toString + "\n").getBytes(StandardCharsets.UTF_8)
       line
     }
-    .toMat(Sink.fold((None: Option[OutputStream], 0, 0)) { case ((outOpt, lineCount, fileCount), lineData) =>
+    .runWith(Sink.fold((None: Option[OutputStream], 0, 0)) { case ((outOpt, lineCount, fileCount), lineData) =>
       logCount(lineCount)
       val (out, newFileCount) = outOpt match {
         case None => (createOut(fileCount), fileCount)
@@ -104,58 +104,12 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
       }
       out.write(lineData)
       (Some(out), lineCount + 1, newFileCount)
-    })(Keep.both)
-    .run()
-
-  // manually create connection to fine tune fetch settings, settings below are required idiomatic settings for JDBC streaming behavior on MySQL
-  // https://stackoverflow.com/questions/6942336/mysql-memory-ram-usage-increases-while-using-resultset
-  val conn = config.dataSource.getConnection()
-  val pstmt = conn.prepareStatement(s"select * from ${config.table}", ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY, ResultSet.CLOSE_CURSORS_AT_COMMIT)
-  pstmt.setFetchSize(Integer.MIN_VALUE)
-  val rs = pstmt.executeQuery()
-
-  try {
-    while (rs.next()) {
-      val rowValues = schemaWithIndex.map { case (field, i) =>
-        val sqlIndex = i + 1
-        val value = {
-          if (rs.getString(sqlIndex) == null) {
-            JsNull
-          } else {
-            field.`type` match {
-              case BqTypes.Boolean => JsBoolean(rs.getBoolean(sqlIndex))
-              case BqTypes.Integer | BqTypes.Float => JsNumber(rs.getBigDecimal(sqlIndex))
-              case BqTypes.Timestamp =>
-                // have to re-check null due to special TS handling with convert to null param in connection string
-                if (rs.getTimestamp(sqlIndex) == null) {
-                  JsNull
-                } else {
-                  JsString(BigQueryUtil.formatDate(rs.getTimestamp(sqlIndex).getTime))
-                }
-              case BqTypes.String => JsString(rs.getString(sqlIndex))
-            }
-          }
-        }
-        field.name -> value
-      }
-      val rowJso = JsObject(rowValues.toMap)
-      Await.result(queue.offer(rowJso), writeTimeout)
-    }
-    queue.complete()
-  } catch {
-    case ex: Exception => queue.fail(ex)
-  }
+    })
 
 
-  def cleanSql() = {
-    DbUtils.closeQuietly(rs)
-    DbUtils.closeQuietly(pstmt)
-    DbUtils.closeQuietly(conn)
-  }
 
   future.onComplete {
     case Success((outOpt, lineCount, fileCount)) =>
-      cleanSql()
       outOpt.foreach { out =>
         out.flush()
         out.close()
@@ -165,7 +119,6 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
       logger.info(s"Dumped schema to ${schemaFile}")
       System.exit(0)
     case Failure(ex) =>
-      cleanSql()
       logger.error(s"Failed stream: ${ex.getMessage}", ex)
       System.exit(1)
   }
