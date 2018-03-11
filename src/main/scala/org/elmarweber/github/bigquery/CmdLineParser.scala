@@ -10,10 +10,11 @@ object CmdLineParser {
     dbUrl: String = "jdbc:mysql://localhost:3306/test",
     username: String = "root",
     password: String = "",
-    table: String = "",
+    tables: List[String] = Nil,
     outDir: File = new File("./"),
     compress: Boolean = false,
-    splitLines: Option[Int] = None
+    splitLines: Option[Int] = None,
+    parallelism: Int = 1
   ) {
     def dataSource = {
       val ds = new BasicDataSource()
@@ -48,9 +49,13 @@ object CmdLineParser {
       .action( (x, c) => c.copy(splitLines = Some(x)) )
       .text(s"the number of lines to split files after")
 
-    opt[String]('t', "table")
+    opt[Int]("parallelism")
+      .action( (x, c) => c.copy(parallelism = x) )
+      .text(s"the number of parallel extractors to run, only makes sense if multiple tables are specified")
+
+    opt[Seq[String]]('t', "tables")
       .required()
-      .action( (x, c) => c.copy(table = x) )
+      .action( (x, c) => c.copy(tables = x.toList) )
 
     opt[File]('o', "out")
       .required()

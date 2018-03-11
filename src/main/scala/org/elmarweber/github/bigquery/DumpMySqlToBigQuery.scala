@@ -20,11 +20,11 @@ import org.apache.commons.dbcp2.BasicDataSource
 import org.apache.commons.dbutils.{DbUtils, QueryRunner, ResultSetHandler}
 import spray.json._
 
-import scala.concurrent.Await
+import scala.concurrent.{Await, Future}
 import scala.util.{Failure, Success}
 import scala.concurrent.duration._
 
-object DumpMySqlToBigQuery extends App with StrictLogging {
+object DumpMySqlToBigQuery extends App with StrictLogging with DumpMySqlTableStream {
   import CmdLineParser._
 
   val config = parser.parse(args, Config()) match {
@@ -34,94 +34,40 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
       throw new IllegalStateException("Should not happen")
   }
 
-  logger.info(s"Starting dump of ${config.table} at ${config.dbUrl} using ${config.username}")
+  implicit def ds = config.dataSource
+
+  logger.info(s"Starting dumps of ${config.tables.size} tables from ${config.dbUrl} using ${config.username}")
 
   // constant date prefix for all files writte during this session
   val datePrefix = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new Date(System.currentTimeMillis()))
 
-  val schemaFile = s"${config.outDir.getAbsolutePath}/${config.table}.bqschema"
-  def genDataFilename(i: Int) = {
-    s"${config.outDir.getAbsolutePath}/${datePrefix}_${config.table}.${i}.json${if (config.compress) ".gz" else ""}"
+  def genSchemaFilename(table: String) = s"${config.outDir.getAbsolutePath}/${table}.bqschema"
+  def genDataFilename(table: String, fileCount: Int, compress: Boolean) = {
+    s"${config.outDir.getAbsolutePath}/${datePrefix}_${table}.${fileCount}.json${if (compress) ".gz" else ""}"
   }
 
   implicit val system = ActorSystem("sql-bq")
   implicit val ec = system.dispatcher
-  implicit val mat = ActorMaterializer()
-
-  val runner = new QueryRunner(config.dataSource)
-
-  // head table to get col layout
-  val schema = runner.query(s"select * from ${config.table} limit 1", new ResultSetHandler[BqSchema] {
-    override def handle(rs: ResultSet): BqSchema = {
-      (1 to rs.getMetaData.getColumnCount).toList.map { i =>
-        val colName = rs.getMetaData.getColumnName(i)
-        val bqType = rs.getMetaData.getColumnType(i) match {
-          case Types.BOOLEAN => BqTypes.Boolean
-          case Types.INTEGER | Types.BIGINT | Types.TINYINT | Types.BIT => BqTypes.Integer
-          case Types.DECIMAL | Types.FLOAT => BqTypes.Float
-          case Types.TIMESTAMP | Types.DATE => BqTypes.Timestamp
-          case Types.CHAR | Types.VARCHAR | Types.LONGVARCHAR => BqTypes.String
-          case o =>
-            logger.warn(s"Unhandled type ${o}/${rs.getMetaData.getColumnTypeName(i)}, defaulting to string")
-            BqTypes.String
-        }
-        // timestamps are always nullable because
-        val nullable = if ((rs.getMetaData.isNullable(i) == ResultSetMetaData.columnNullable) || bqType == BqTypes.Timestamp) "nullable" else "required"
-
-        BqSchemaField(colName, bqType, nullable)
-      }
-    }
-  })
-  val schemaWithIndex = schema.zipWithIndex
-  logger.info(s"Successfully build schema with ${schema.size} columns")
-
-
-  def createOut(i: Int) = {
-    if (config.compress) {
-      new GZIPOutputStream(new FileOutputStream(new File(genDataFilename(i))))
-    } else {
-      new FileOutputStream(new File(genDataFilename(i)))
-    }
-  }
-
-  def logCount(count: Int) = {
-    if (count > 0 && (((count < 1000000) && count % 10000 == 0) || (count % 100000 == 0))) logger.info(s"Done ${count} rows")
-  }
+  implicit val mmat = ActorMaterializer()
 
 
   val future = Source
-    .fromGraph(SqlReaderToJsonSource.create(config.table, schema)(config.dataSource))
-    .map { rowJso =>
-      val line = (rowJso.toString + "\n").getBytes(StandardCharsets.UTF_8)
-      line
-    }
-    .runWith(Sink.fold((None: Option[OutputStream], 0, 0)) { case ((outOpt, lineCount, fileCount), lineData) =>
-      logCount(lineCount)
-      val (out, newFileCount) = outOpt match {
-        case None => (createOut(fileCount), fileCount)
-        case Some(out) if config.splitLines.isDefined && lineCount % config.splitLines.get == 0  =>
-          out.flush()
-          out.close()
-          val newFileCount = fileCount + 1
-          logger.info(s"Creating new file with index ${newFileCount}")
-         (createOut(newFileCount), newFileCount)
-        case Some(out) => (out, fileCount)
+    .fromIterator(() => config.tables.iterator)
+    .mapAsync(config.parallelism) { table =>
+      createStream(table, config.compress, config.splitLines).map { lineCount =>
+        (table, lineCount)
       }
-      out.write(lineData)
-      (Some(out), lineCount + 1, newFileCount)
-    })
-
+    }
+    .runWith(Sink.seq)
 
 
   future.onComplete {
-    case Success((outOpt, lineCount, fileCount)) =>
-      outOpt.foreach { out =>
-        out.flush()
-        out.close()
+    case Success(tableResults) =>
+      tableResults.foreach {
+        case (table, lineCount) => logger.info(s"Dumped for table ${table} ${lineCount} rows")
       }
-      logger.info(s"Dumped ${lineCount} rows to ${fileCount + 1} data files")
-      Files.write(Paths.get(schemaFile), schema.toJson.toString.getBytes(StandardCharsets.UTF_8))
-      logger.info(s"Dumped schema to ${schemaFile}")
+      val totalLines = tableResults.map(_._2).sum
+      logger.info(s"Dumped ${totalLines} rows in total")
       System.exit(0)
     case Failure(ex) =>
       logger.error(s"Failed stream: ${ex.getMessage}", ex)
