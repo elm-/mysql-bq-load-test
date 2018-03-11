@@ -6,7 +6,15 @@ import javax.sql.DataSource
 import org.apache.commons.dbcp2.BasicDataSource
 
 object CmdLineParser {
-  case class Config(dbUrl: String = "jdbc:mysql://localhost:3306/test", username: String = "root", password: String = "", table: String = "", outDir: File = new File("./"), compress: Boolean = false, splitLines: Option[Int] = None) {
+  case class Config(
+    dbUrl: String = "jdbc:mysql://localhost:3306/test",
+    username: String = "root",
+    password: String = "",
+    table: String = "",
+    outDir: File = new File("./"),
+    compress: Boolean = false,
+    splitLines: Option[Int] = None
+  ) {
     def dataSource = {
       val ds = new BasicDataSource()
       ds.setDriverClassName("com.mysql.cj.jdbc.Driver")
