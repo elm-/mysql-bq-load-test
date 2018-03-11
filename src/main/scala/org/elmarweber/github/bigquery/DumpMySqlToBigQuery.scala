@@ -1,6 +1,6 @@
 package org.elmarweber.github.bigquery
 
-import java.io.{File, FileOutputStream}
+import java.io.{File, FileOutputStream, OutputStream}
 import java.sql.{ResultSet, ResultSetMetaData, SQLType, Types}
 import javax.sql.DataSource
 import java.nio.file.{Files, Paths}
@@ -71,8 +71,7 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
   logger.info(s"Successfully build schema with ${schema.size} columns")
 
 
-  var fileCount = 0
-  def recreateOut(i: Int) = {
+  def createOut(i: Int) = {
     if (config.compress) {
       new GZIPOutputStream(new FileOutputStream(new File(genDataFile(i))))
     } else {
@@ -80,25 +79,32 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
     }
   }
 
-  var out = recreateOut(fileCount)
-  val counter = new AtomicLong(0)
+  def logCount(count: Int) = {
+    if (count > 0 && (((count < 1000000) && count % 10000 == 0) || (count % 100000 == 0))) logger.info(s"Done ${count} rows")
+  }
+
 
   val (queue, future) = Source
     .queue[JsObject](512, OverflowStrategy.backpressure)
     .map { rowJso =>
-      val count = counter.incrementAndGet()
-      if (((count < 1000000) && count % 10000 == 0) || (count % 100000 == 0)) logger.info(s"Done ${counter.get()} rows")
-      if (config.splitLines.isDefined && count % config.splitLines.get == 0) {
-        out.flush()
-        out.close()
-        fileCount += 1
-        logger.info(s"Creating new file with index ${fileCount}")
-        out = recreateOut(fileCount)
-      }
       val line = (rowJso.toString + "\n").getBytes(StandardCharsets.UTF_8)
-      out.write(line)
+      line
     }
-    .toMat(Sink.ignore)(Keep.both)
+    .toMat(Sink.fold((None: Option[OutputStream], 0, 0)) { case ((outOpt, lineCount, fileCount), lineData) =>
+      logCount(lineCount)
+      val (out, newFileCount) = outOpt match {
+        case None => (createOut(fileCount), fileCount)
+        case Some(out) if config.splitLines.isDefined && lineCount % config.splitLines.get == 0  =>
+          out.flush()
+          out.close()
+          val newFileCount = fileCount + 1
+          logger.info(s"Creating new file with index ${newFileCount}")
+         (createOut(newFileCount), newFileCount)
+        case Some(out) => (out, fileCount)
+      }
+      out.write(lineData)
+      (Some(out), lineCount + 1, newFileCount)
+    })(Keep.both)
     .run()
 
   // manually create connection to fine tune fetch settings, settings below are required idiomatic settings for JDBC streaming behavior on MySQL
@@ -148,11 +154,13 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
   }
 
   future.onComplete {
-    case Success(_) =>
+    case Success((outOpt, lineCount, fileCount)) =>
       cleanSql()
-      out.flush()
-      out.close()
-      logger.info(s"Dumped ${counter.get()} rows to ${fileCount + 1} data files")
+      outOpt.foreach { out =>
+        out.flush()
+        out.close()
+      }
+      logger.info(s"Dumped ${lineCount} rows to ${fileCount + 1} data files")
       Files.write(Paths.get(schemaFile), schema.toJson.toString.getBytes(StandardCharsets.UTF_8))
       logger.info(s"Dumped schema to ${schemaFile}")
       System.exit(0)
