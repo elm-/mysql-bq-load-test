@@ -5,6 +5,8 @@ import java.sql.{ResultSet, ResultSetMetaData, SQLType, Types}
 import javax.sql.DataSource
 import java.nio.file.{Files, Paths}
 import java.nio.charset.StandardCharsets
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.concurrent.atomic.AtomicLong
 import java.util.zip.GZIPOutputStream
 
@@ -34,10 +36,13 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
 
   logger.info(s"Starting dump of ${config.table} at ${config.dbUrl} using ${config.username}")
 
-  val writeTimeout = 30.seconds // timeout in case issue with slow writer
+  // constant date prefix for all files writte during this session
+  val datePrefix = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new Date(System.currentTimeMillis()))
 
   val schemaFile = s"${config.outDir.getAbsolutePath}/${config.table}.bqschema"
-  def genDataFile(i: Int) = s"${config.outDir.getAbsolutePath}/${config.table}.${i}.json${if (config.compress) ".gz" else ""}"
+  def genDataFilename(i: Int) = {
+    s"${config.outDir.getAbsolutePath}/${datePrefix}_${config.table}.${i}.json${if (config.compress) ".gz" else ""}"
+  }
 
   implicit val system = ActorSystem("sql-bq")
   implicit val ec = system.dispatcher
@@ -73,9 +78,9 @@ object DumpMySqlToBigQuery extends App with StrictLogging {
 
   def createOut(i: Int) = {
     if (config.compress) {
-      new GZIPOutputStream(new FileOutputStream(new File(genDataFile(i))))
+      new GZIPOutputStream(new FileOutputStream(new File(genDataFilename(i))))
     } else {
-      new FileOutputStream(new File(genDataFile(i)))
+      new FileOutputStream(new File(genDataFilename(i)))
     }
   }
 
