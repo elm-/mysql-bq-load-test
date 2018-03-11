@@ -11,6 +11,7 @@ import akka.stream.Materializer
 import akka.stream.scaladsl.{Sink, Source}
 import com.typesafe.scalalogging.StrictLogging
 import org.apache.commons.dbutils.{QueryRunner, ResultSetHandler}
+import org.elmarweber.github.bigquery.DumpMySqlToBigQuery.logger
 import spray.json._
 
 import scala.concurrent.{ExecutionContext, Future}
@@ -68,6 +69,11 @@ trait DumpMySqlTableStream extends StrictLogging with DefaultJsonProtocol {
           out.close()
         }
         logger.info(s"${table}: Dumped ${lineCount} rows to ${fileCount + 1} data files")
+        if (lineCount == 0) {
+          logger.info("Creating dummy output file because no file was written so far")
+          val fout = createOut(table, fileCount, compress)
+          fout.close()
+        }
         Files.write(Paths.get(genSchemaFilename(table)), schema.toJson.toString.getBytes(StandardCharsets.UTF_8))
         logger.info(s"${table}: Dumped schema to ${genSchemaFilename(table)}")
         lineCount
