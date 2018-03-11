@@ -38,7 +38,6 @@ trait DumpMySqlTableStream extends StrictLogging with DefaultJsonProtocol {
 
   def createStream(table: String, compress: Boolean, splitLines: Option[Int])(implicit ds: DataSource, mat: Materializer, ec: ExecutionContext): Future[Int]  = {
     val schema = BqSchemaBuilder.buildSchema(table)
-    val schemaWithIndex = schema.zipWithIndex
     logger.info(s"${table}: Successfully build schema with ${schema.size} columns")
 
 
