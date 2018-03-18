@@ -10,6 +10,7 @@ import javax.sql.DataSource
 import akka.stream.Materializer
 import akka.stream.scaladsl.{Sink, Source}
 import com.typesafe.scalalogging.StrictLogging
+import org.apache.commons.dbcp2.BasicDataSource
 import org.apache.commons.dbutils.{QueryRunner, ResultSetHandler}
 import org.elmarweber.github.bigquery.DumpMySqlToBigQuery.logger
 import spray.json._
@@ -20,6 +21,9 @@ import scala.concurrent.{ExecutionContext, Future}
   * A stream that queries a MySQL table and outputs the schema and rows as JSON data files.
   */
 trait DumpMySqlTableStream extends StrictLogging with DefaultJsonProtocol {
+  private val ReplIdColName = "repl_id"
+  private val ReplIdBqSchemaCol = BqSchemaField("repl_id", BqTypes.String)
+
   def genSchemaFilename(table: String): String
   def genDataFilename(table: String, fileCount: Int, compress: Boolean): String
 
@@ -38,14 +42,25 @@ trait DumpMySqlTableStream extends StrictLogging with DefaultJsonProtocol {
 
 
   def createStream(table: String, compress: Boolean, splitLines: Option[Int])(implicit ds: DataSource, mat: Materializer, ec: ExecutionContext): Future[Int]  = {
-    val schema = BqSchemaBuilder.buildSchema(table)
-    logger.info(s"${table}: Successfully build schema with ${schema.size} columns")
+    val tableSchema = BqSchemaBuilder.buildSchema(table)
+    val bqSchema = tableSchema ::: List(ReplIdBqSchemaCol)
+    val primaryIdCols = MySQLSyncUtils.getPrimaryIdCols(ds.asInstanceOf[BasicDataSource].getDefaultCatalog, table)
+    logger.info(s"${table}: Successfully build schema with ${tableSchema.size} columns and ${primaryIdCols.mkString(", ")} as primary ID cols")
 
 
     Source
-      .fromGraph(SqlReaderToJsonSource.create(table, schema)(ds))
+      .fromGraph(SqlReaderToJsonSource.create(table, tableSchema)(ds))
       .map { rowJso =>
-        val line = (rowJso.toString + "\n").getBytes(StandardCharsets.UTF_8)
+        val replId = primaryIdCols.map { col =>
+          rowJso.fields(col) match {
+            case JsNull => "null"
+            case JsString(value) => value
+            case JsNumber(value) => value.toString
+            case JsBoolean(value) => value.toString
+          }
+        }.mkString("_")
+        val rowJsoWithReplId = JsObject(rowJso.fields ++ Map(ReplIdColName -> JsString(replId)))
+        val line = (rowJsoWithReplId.toString + "\n").getBytes(StandardCharsets.UTF_8)
         line
       }
       .runWith(Sink.fold((None: Option[OutputStream], 0, 0)) { case ((outOpt, lineCount, fileCount), lineData) =>
@@ -74,7 +89,7 @@ trait DumpMySqlTableStream extends StrictLogging with DefaultJsonProtocol {
           val fout = createOut(table, fileCount, compress)
           fout.close()
         }
-        Files.write(Paths.get(genSchemaFilename(table)), schema.toJson.toString.getBytes(StandardCharsets.UTF_8))
+        Files.write(Paths.get(genSchemaFilename(table)), bqSchema.toJson.toString.getBytes(StandardCharsets.UTF_8))
         logger.info(s"${table}: Dumped schema to ${genSchemaFilename(table)}")
         lineCount
       }

@@ -1,11 +1,16 @@
 package org.elmarweber.github.bigquery
 
 import java.io.File
+import java.text.SimpleDateFormat
 import javax.sql.DataSource
 
 import org.apache.commons.dbcp2.BasicDataSource
 
+import scala.util.{Failure, Success, Try}
+
 object CmdLineParser {
+  private val CmdLineDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+
   case class Config(
     dbUrl: String = "jdbc:mysql://localhost:3306/test",
     username: String = "root",
@@ -14,7 +19,9 @@ object CmdLineParser {
     outDir: File = new File("./"),
     compress: Boolean = false,
     splitLines: Option[Int] = None,
-    parallelism: Int = 1
+    parallelism: Int = 1,
+    incrementalColumn: Option[String] = None,
+    incrementalTimestamp: Option[Long] = None
   ) {
     def dataSource = {
       val ds = new BasicDataSource()
@@ -51,6 +58,21 @@ object CmdLineParser {
 
     opt[Int]("parallelism")
       .action( (x, c) => c.copy(parallelism = x) )
+      .text(s"the number of parallel extractors to run, only makes sense if multiple tables are specified")
+
+    opt[String]("incremental-column")
+      .action( (x, c) => c.copy(incrementalColumn = Some(x)) )
+      .text(s"a column to use for incremental loads, if not specified the whole table is dumped, also")
+      .text(s"requires incremental-timestamp parameter, as otherwise 01.01.1970 00:00:00 is assumed as default")
+
+    opt[String]("incremental-timestamp")
+      .validate { x =>
+        Try(CmdLineDateFormat.parse(x)) match {
+          case Success(_) => Right(())
+          case Failure(ex) => Left(ex.getMessage)
+        }
+      }
+      .action( (x, c) => c.copy(incrementalTimestamp = Some(CmdLineDateFormat.parse(x).getTime)) )
       .text(s"the number of parallel extractors to run, only makes sense if multiple tables are specified")
 
     opt[Seq[String]]('t', "tables")
