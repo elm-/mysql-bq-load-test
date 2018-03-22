@@ -18,8 +18,8 @@ trait BqSchemaBuilder extends StrictLogging {
           val colName = rs.getMetaData.getColumnName(i)
           val bqType = rs.getMetaData.getColumnType(i) match {
             case Types.BOOLEAN => BqTypes.Boolean
-            case Types.INTEGER | Types.BIGINT | Types.TINYINT | Types.BIT => BqTypes.Integer
-            case Types.DECIMAL | Types.FLOAT | Types.DOUBLE => BqTypes.Float
+            case Types.INTEGER | Types.BIGINT | Types.SMALLINT | Types.TINYINT | Types.BIT => BqTypes.Integer
+            case Types.DECIMAL | Types.FLOAT | Types.REAL | Types.DOUBLE => BqTypes.Float
             case Types.TIMESTAMP | Types.DATE => BqTypes.Timestamp
             case Types.CHAR | Types.VARCHAR | Types.LONGVARCHAR => BqTypes.String
             case o =>
