@@ -41,7 +41,7 @@ trait DumpMySqlTableStream extends StrictLogging with DefaultJsonProtocol {
   }
 
 
-  def createStream(table: String, compress: Boolean, splitLines: Option[Int])(implicit ds: DataSource, mat: Materializer, ec: ExecutionContext): Future[Int]  = {
+  def createStream(table: String, compress: Boolean, splitLines: Option[Int], incrementalColumn: Option[String], incrementalTimestamp: Option[Long])(implicit ds: DataSource, mat: Materializer, ec: ExecutionContext): Future[Int]  = {
     val tableSchema = BqSchemaBuilder.buildSchema(table)
     val bqSchema = tableSchema ::: List(ReplIdBqSchemaCol)
     val primaryIdCols = MySQLSyncUtils.getPrimaryIdCols(ds.asInstanceOf[BasicDataSource].getDefaultCatalog, table)
@@ -49,7 +49,7 @@ trait DumpMySqlTableStream extends StrictLogging with DefaultJsonProtocol {
 
 
     Source
-      .fromGraph(SqlReaderToJsonSource.create(table, tableSchema)(ds))
+      .fromGraph(SqlReaderToJsonSource.create(table, tableSchema, incrementalColumn, incrementalTimestamp)(ds))
       .map { rowJso =>
         val replId = primaryIdCols.map { col =>
           rowJso.fields(col) match {

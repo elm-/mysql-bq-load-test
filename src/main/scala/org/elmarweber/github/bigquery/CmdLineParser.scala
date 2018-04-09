@@ -2,6 +2,8 @@ package org.elmarweber.github.bigquery
 
 import java.io.File
 import java.text.SimpleDateFormat
+import java.time.{LocalDateTime, Period, ZoneOffset}
+import java.time.temporal.{ChronoUnit, TemporalUnit}
 import javax.sql.DataSource
 
 import org.apache.commons.dbcp2.BasicDataSource
@@ -69,11 +71,31 @@ object CmdLineParser {
       .validate { x =>
         Try(CmdLineDateFormat.parse(x)) match {
           case Success(_) => Right(())
-          case Failure(ex) => Left(ex.getMessage)
+          case Failure(ex) =>
+            if (x.endsWith("h")) {
+              val substr = x.substring(0, x.lastIndexOf('h'))
+              Try(substr.toLong) match {
+                case Success(hours) =>
+                  Right(())
+                case Failure(ex) =>
+                  Left(ex.getMessage)
+              }
+            } else {
+              Left(ex.getMessage)
+            }
         }
       }
-      .action( (x, c) => c.copy(incrementalTimestamp = Some(CmdLineDateFormat.parse(x).getTime)) )
-      .text(s"the number of parallel extractors to run, only makes sense if multiple tables are specified")
+      .action( (x, c) => {
+        Try(CmdLineDateFormat.parse(x)) match {
+          case Success(date) =>
+            c.copy(incrementalTimestamp = Some(date.getTime))
+          case Failure(_) =>
+            val substr = x.substring(0, x.lastIndexOf('h'))
+            c.copy(incrementalTimestamp = Some(LocalDateTime.now().minus(substr.toLong, ChronoUnit.HOURS).toInstant(ZoneOffset.UTC).toEpochMilli))
+
+        }
+      })
+      .text(s"the date to use as incremental import (yyyy-MM-dd HH:mm:ss), can also be something in hours like 24h")
 
     opt[Seq[String]]('t', "tables")
       .required()

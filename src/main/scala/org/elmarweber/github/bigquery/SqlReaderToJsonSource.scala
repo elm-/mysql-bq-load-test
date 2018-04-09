@@ -1,7 +1,7 @@
 package org.elmarweber.github.bigquery
 
 
-import java.sql.{Connection, PreparedStatement, ResultSet}
+import java.sql.{Connection, PreparedStatement, ResultSet, Timestamp}
 import javax.sql.DataSource
 
 import akka.stream.stage.{GraphStage, GraphStageLogic, OutHandler}
@@ -15,7 +15,7 @@ import spray.json._
   * Akka stream source implementation with backpressure support that streams a MySQL query into BqSchema compatible
   * json objects.
   */
-class SqlReaderToJsonSource(table: String, bqSchema: BqSchema)(implicit ds: DataSource) extends GraphStage[SourceShape[JsObject]] {
+class SqlReaderToJsonSource(table: String, bqSchema: BqSchema, incrementalColumn: Option[String], incrementalTimestamp: Option[Long])(implicit ds: DataSource) extends GraphStage[SourceShape[JsObject]] {
   private val out: Outlet[JsObject] = Outlet(s"${classOf[SqlReaderToJsonSource].getSimpleName}-${table}")
   private val schemaWithIndex = bqSchema.zipWithIndex
 
@@ -36,7 +36,15 @@ class SqlReaderToJsonSource(table: String, bqSchema: BqSchema)(implicit ds: Data
       // https://stackoverflow.com/questions/6942336/mysql-memory-ram-usage-increases-while-using-resultset
       val conn = ds.getConnection()
       try {
-        val pstmt = conn.prepareStatement(s"select * from ${table}", ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY, ResultSet.CLOSE_CURSORS_AT_COMMIT)
+        val pstmt = {
+          if (incrementalColumn.isDefined) {
+            val stmt = conn.prepareStatement(s"select * from ${table} where ${incrementalColumn.get} >= ?", ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY, ResultSet.CLOSE_CURSORS_AT_COMMIT)
+            stmt.setTimestamp(1, new Timestamp(incrementalTimestamp.get))
+            stmt
+          } else {
+            conn.prepareStatement(s"select * from ${table}", ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY, ResultSet.CLOSE_CURSORS_AT_COMMIT)
+          }
+        }
         pstmt.setFetchSize(Integer.MIN_VALUE)
 
         try {
@@ -105,6 +113,7 @@ class SqlReaderToJsonSource(table: String, bqSchema: BqSchema)(implicit ds: Data
 }
 
 object SqlReaderToJsonSource {
-  def create(table: String, bqSchema: BqSchema)(implicit ds: DataSource) = new SqlReaderToJsonSource(table, bqSchema)
+  def create(table: String, bqSchema: BqSchema, incrementalColumn: Option[String], incrementalTimestamp: Option[Long])(implicit ds: DataSource) =
+    new SqlReaderToJsonSource(table, bqSchema, incrementalColumn, incrementalTimestamp)
 }
 
