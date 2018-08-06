@@ -27,7 +27,9 @@ trait BqSchemaBuilder extends StrictLogging {
               BqTypes.String
           }
           // timestamps are always nullable because
-          val nullable = if ((rs.getMetaData.isNullable(i) == ResultSetMetaData.columnNullable) || bqType == BqTypes.Timestamp) "nullable" else "required"
+//          val nullable = if ((rs.getMetaData.isNullable(i) == ResultSetMetaData.columnNullable) || bqType == BqTypes.Timestamp) "nullable" else "required"
+          // set to always nullable for easier import of historic
+          val nullable = "nullable"
 
           BqSchemaField(colName, bqType, nullable)
         }
