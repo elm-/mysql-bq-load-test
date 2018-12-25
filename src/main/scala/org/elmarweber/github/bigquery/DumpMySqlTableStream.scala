@@ -41,7 +41,7 @@ trait DumpMySqlTableStream extends StrictLogging with DefaultJsonProtocol {
   }
 
 
-  def createStream(table: String, compress: Boolean, splitLines: Option[Int], incrementalColumn: Option[String], incrementalTimestamp: Option[Long])(implicit ds: DataSource, mat: Materializer, ec: ExecutionContext): Future[Int]  = {
+  def createStream(table: String, compress: Boolean, splitLines: Option[Int], incrementalColumn: Option[String], incrementalTimestamp: Option[Long], generateReplId: Boolean)(implicit ds: DataSource, mat: Materializer, ec: ExecutionContext): Future[Int]  = {
     val tableSchema = BqSchemaBuilder.buildSchema(table)
     val bqSchema = tableSchema ::: List(ReplIdBqSchemaCol)
     val primaryIdCols = MySQLSyncUtils.getPrimaryIdCols(ds.asInstanceOf[BasicDataSource].getDefaultCatalog, table)
@@ -51,15 +51,19 @@ trait DumpMySqlTableStream extends StrictLogging with DefaultJsonProtocol {
     Source
       .fromGraph(SqlReaderToJsonSource.create(table, tableSchema, incrementalColumn, incrementalTimestamp)(ds))
       .map { rowJso =>
-        val replId = primaryIdCols.map { col =>
-          rowJso.fields(col) match {
-            case JsNull => "null"
-            case JsString(value) => value
-            case JsNumber(value) => value.toString
-            case JsBoolean(value) => value.toString
-          }
-        }.mkString("_")
-        val rowJsoWithReplId = JsObject(rowJso.fields ++ Map(ReplIdColName -> JsString(replId)))
+        val rowJsoWithReplId = generateReplId match {
+          case false => rowJso
+          case true =>
+            val replId = primaryIdCols.map { col =>
+              rowJso.fields(col) match {
+                case JsNull => "null"
+                case JsString(value) => value
+                case JsNumber(value) => value.toString
+                case JsBoolean(value) => value.toString
+              }
+            }.mkString("_")
+            JsObject(rowJso.fields ++ Map(ReplIdColName -> JsString(replId)))
+        }
         val line = (rowJsoWithReplId.toString + "\n").getBytes(StandardCharsets.UTF_8)
         line
       }

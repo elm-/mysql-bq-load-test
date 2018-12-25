@@ -54,7 +54,7 @@ object DumpMySqlToBigQuery extends App with StrictLogging with DumpMySqlTableStr
   val future = Source
     .fromIterator(() => config.tables.iterator)
     .mapAsyncUnordered(config.parallelism) { table =>
-      createStream(table, config.compress, config.splitLines, config.incrementalColumn, config.incrementalTimestamp).map { lineCount =>
+      createStream(table, config.compress, config.splitLines, config.incrementalColumn, config.incrementalTimestamp, config.generateReplId).map { lineCount =>
         (table, lineCount)
       }
     }

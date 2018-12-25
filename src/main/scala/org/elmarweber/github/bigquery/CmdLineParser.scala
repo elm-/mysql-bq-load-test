@@ -22,6 +22,7 @@ object CmdLineParser {
     compress: Boolean = false,
     splitLines: Option[Int] = None,
     parallelism: Int = 1,
+    generateReplId: Boolean = true,
     incrementalColumn: Option[String] = None,
     incrementalTimestamp: Option[Long] = None
   ) {
@@ -53,6 +54,10 @@ object CmdLineParser {
     opt[Boolean]('c', "compress")
       .action( (x, c) => c.copy(compress = x) )
       .text(s"weather to compress the output with gzip")
+
+    opt[Boolean]("generate-repl-id")
+      .action( (x, c) => c.copy(generateReplId = x) )
+      .text(s"weather to generate the replication id column automatically (default = true)")
 
     opt[Int]('s', "split")
       .action( (x, c) => c.copy(splitLines = Some(x)) )
